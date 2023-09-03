@@ -24,13 +24,14 @@ class Stock():
         self.data_by_date = []
 
         print("Getting strike price list...")
-        self.strike_price_list = yo.get_chain_greeks_date(
+        strike_price_list = yo.get_chain_greeks_date(
             stock_ticker=self.stock_ticker,
             dividend_yield=0,
             option_type='c',
             expiration_date=self.options_dates[-1],
             risk_free_rate=None
         )
+        self.strike_price_list = strike_price_list.values.tolist()
 
     def __repr__(self):
         self.__str__()
@@ -64,6 +65,7 @@ class Stock():
                 expiration_date=option_date,
                 strike=option_price
             )
+        tmp = self.options_dict[skey]
         tmp = float(self.options_dict[skey]["Last Price"])
         self.data_entry[f"{option_type} @ {option_price:09.3f}"] = tmp
         return tmp
@@ -93,10 +95,10 @@ class Stock():
             apr_constant = int(50 / date_diff_weeks)
 
             option_income = 0
-            for op_type, op_percent, op_strike in strategy_options[method]:
+            for op_type, op_percent, op_strike_percent in strategy_options[method]:
                 op_price = self.get_option_price(
                                     options_dates_i,
-                                    op_strike,
+                                    op_strike_percent * self.stock_price,
                                     op_type)
                 if op_type.upper() == "C":
                     option_income += op_percent * op_price
@@ -118,5 +120,5 @@ if __name__ == '__main__':
     if 0:
         fire.Fire(Stock)
     else:
-        stock = Stock("AAPL")
+        stock = Stock("CMCSA")
         stock.calc()
