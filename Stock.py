@@ -2,70 +2,121 @@ from datetime import datetime, timedelta
 import yfinance as yf
 import yoptions as yo
 import pandas as pd
+import fire
 
 class Stock():
-    def __init__(self, stock_ticker, strike_margin = 0, days=31):
-        self.stock_ticker = stock_ticker
-        self.strike_maring = strike_margin
+    def __init__(self, stock, days=31):
+        self.stock_ticker = stock
         self.days = days
         self.datetime_now = datetime.now()
         self.datetime_range = self.datetime_now + timedelta(self.days)
 
         try:
-            self.ticker = yf.Ticker(stock_ticker)
+            self.ticker = yf.Ticker(stock)
         except:
-            print(f"Could not find ticker {stock_ticker}")
-
-
-        date_format = '%Y-%m-%d'
+            print(f"Could not find ticker {stock}")
+        self.stock_price = self.ticker.basic_info.last_price
+        self.date_format = '%Y-%m-%d'
         date_str_list = list(self.ticker.options)
-        good_dates = [i for i in date_str_list if datetime.strptime(i, date_format) < self.datetime_range]
+        self.options_dates = [i for i in date_str_list if datetime.strptime(i, self.date_format) < self.datetime_range]
+        self.options_dict = {}
+        self.data_entry = {}
+        self.data_by_date = []
 
-        self.day_high = self.ticker.basic_info.day_high
-        self.day_low = self.ticker.basic_info.day_low
-        dummy_chain = yo.get_chain_greeks_date(
+        print("Getting strike price list...")
+        self.strike_price_list = yo.get_chain_greeks_date(
             stock_ticker=self.stock_ticker,
             dividend_yield=0,
             option_type='c',
-            expiration_date=good_dates[-1],
+            expiration_date=self.options_dates[-1],
             risk_free_rate=None
         )
-        self.strike_values = dummy_chain["Strike"].values.tolist()
-        self.strike_high = [i for i in self.strike_values if i > (self.day_high + strike_margin)]
-        self.strike_high = min(self.strike_high)
-        self.strike_low = [i for i in self.strike_values if i < (self.day_high + strike_margin)]
-        self.strike_low = max(self.strike_low)
+
+    def __repr__(self):
+        self.__str__()
+
+    def __str__(self):
+        s = f"Stock {self.stock_ticker} is at [{self.day_low}, {self.day_high}"
+        return s
+
+    def get_strike_price(self, percent=1.0):
+        """
+        Gets the strike price close to the percent assigned
+        :param percent:
+        :return:
+        """
+        print(f"getting strike price close to {100 * percent:5.3f} %...")
+        val = self.stock_price * percent
+        val_list = self.strike_price_list
+        if percent >= 1.0:
+            strike_price = min([i for i in val_list if i > val])
+        else:
+            strike_price = max([i for i in val_list if i < val])
+        return strike_price
+
+    def get_option_price(self, option_date, option_price, option_type='c'):
+        skey = f"{option_type}, {option_price:6.3f}, {option_date}"
+        print(f"getting option price {skey}")
+        if skey not in self.options_dict.keys():
+            self.options_dict[skey] = yo.get_plain_option(
+                stock_ticker=self.stock_ticker,
+                option_type=option_type,
+                expiration_date=option_date,
+                strike=option_price
+            )
+        tmp = float(self.options_dict[skey]["Last Price"])
+        self.data_entry[f"{option_type} @ {option_price:09.3f}"] = tmp
+        return tmp
+
+    def calc(self, method="XYLD"):
+        strategy_options = {
+            "XYLD": [['c', 1.0, 1.00]],
+            "XYLG": [['c', 0.5, 1.00]],
+            "XRMI": [['c', 1.0, 1.00], ['p', 1.0, 0.95]],
+            "XTR" : [['p', 1.0, 0.90]],
+            "XCLR": [['c', 1.0, 1.10], ['p', 1.0, 0.95]]
+        }
+        if method not in strategy_options.keys():
+            raise ValueError(f"method {method} not in {strategy_options.keys()}")
+
 
         self.data_by_date = []
-        for good_dates_i in good_dates:
-            data_dummy = {}
-            data_dummy["Date"] = good_dates_i
+        for options_dates_i in self.options_dates:
+            self.data_entry = {}
+            self.data_entry["Date"] = options_dates_i
+            self.data_entry["Stock Price"] = self.stock_price
 
-            date_diff = datetime.strptime(good_dates_i, date_format) - self.datetime_now
+            date_diff = datetime.strptime(options_dates_i, self.date_format) - self.datetime_now
             date_diff_days = date_diff.days
             date_diff_weeks = int(date_diff_days / 7) + 1
-            data_dummy["Weeks Time"] = date_diff_weeks
-
-            chain = yo.get_plain_option(
-                stock_ticker=self.stock_ticker,
-                option_type='c',
-                expiration_date=good_dates_i,
-                strike=self.strike_high
-            )
-
-            data_dummy["Stock Price"] = self.day_high
-            data_dummy["Option Price"] = float(chain["Last Price"])
-            data_dummy["Option Percent"] = float(chain["Last Price"]) / self.strike_high
-
+            self.data_entry["Weeks Time"] = date_diff_weeks
             apr_constant = int(50 / date_diff_weeks)
-            apr_value = (1 + data_dummy["Option Percent"]) ** apr_constant - 1
-            data_dummy["Option APR"] = apr_value
 
-            self.data_by_date.append(data_dummy)
+            option_income = 0
+            for op_type, op_percent, op_strike in strategy_options[method]:
+                op_price = self.get_option_price(
+                                    options_dates_i,
+                                    op_strike,
+                                    op_type)
+                if op_type.upper() == "C":
+                    option_income += op_percent * op_price
+                if op_type.upper() == "P":
+                    option_income -= op_percent * op_price
+
+                self.data_entry["Option Income"] = option_income
+                self.data_entry["Option Income Perc"] = option_income / self.stock_price
+
+                apr_value = (1 + self.data_entry["Option Income Perc"]) ** apr_constant - 1
+                self.data_entry["Option APR"] = apr_value
+
+                self.data_by_date.append(self.data_entry)
 
         self.df = pd.DataFrame(self.data_by_date)
         print(self.df)
-        print("DONE")
 
-
-stck = Stock("AFRM")
+if __name__ == '__main__':
+    if 0:
+        fire.Fire(Stock)
+    else:
+        stock = Stock("AAPL")
+        stock.calc()
