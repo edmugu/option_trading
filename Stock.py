@@ -3,9 +3,12 @@ import yfinance as yf
 import yoptions as yo
 import pandas as pd
 import fire
+import math
+
+pd.options.display.max_colwidth = 200  # set a value as your need
 
 class Stock():
-    def __init__(self, stock, days=31):
+    def __init__(self, stock="AFRM", days=31):
         self.stock_ticker = stock
         self.days = days
         self.datetime_now = datetime.now()
@@ -31,43 +34,46 @@ class Stock():
             expiration_date=self.options_dates[-1],
             risk_free_rate=None
         )
-        self.strike_price_list = strike_price_list.values.tolist()
+        self.strike_price_list = list(strike_price_list['Strike'].values)
+        print()
 
     def __repr__(self):
         self.__str__()
 
     def __str__(self):
-        s = f"Stock {self.stock_ticker} is at [{self.day_low}, {self.day_high}"
+        s = f"Stock {self.stock_ticker} is at {self.stock_price}"
         return s
 
-    def get_strike_price(self, percent=1.0):
+    def get_strike_price(self, price=0):
         """
         Gets the strike price close to the percent assigned
-        :param percent:
+        :param price:
         :return:
         """
-        print(f"getting strike price close to {100 * percent:5.3f} %...")
-        val = self.stock_price * percent
+        if price < 0.01:
+            price = self.stock_price
+        price = math.ceil(price)
+        print(f"getting strike price close to {price:5.3f} ...")
         val_list = self.strike_price_list
-        if percent >= 1.0:
-            strike_price = min([i for i in val_list if i > val])
+        if price >= 1.0:
+            strike_price = min([i for i in val_list if i > price])
         else:
-            strike_price = max([i for i in val_list if i < val])
+            strike_price = max([i for i in val_list if i < price])
         return strike_price
 
     def get_option_price(self, option_date, option_price, option_type='c'):
-        skey = f"{option_type}, {option_price:6.3f}, {option_date}"
+        price = self.get_strike_price()
+        skey = f"{option_type}, {price:6.3f}, {option_date}"
         print(f"getting option price {skey}")
         if skey not in self.options_dict.keys():
             self.options_dict[skey] = yo.get_plain_option(
                 stock_ticker=self.stock_ticker,
                 option_type=option_type,
                 expiration_date=option_date,
-                strike=option_price
+                strike=price
             )
-        tmp = self.options_dict[skey]
         tmp = float(self.options_dict[skey]["Last Price"])
-        self.data_entry[f"{option_type} @ {option_price:09.3f}"] = tmp
+        self.data_entry[f"{option_type} @ {price:09.3f}"] = tmp
         return tmp
 
     def calc(self, method="XYLD"):
@@ -96,29 +102,29 @@ class Stock():
 
             option_income = 0
             for op_type, op_percent, op_strike_percent in strategy_options[method]:
-                op_price = self.get_option_price(
-                                    options_dates_i,
-                                    op_strike_percent * self.stock_price,
-                                    op_type)
-                if op_type.upper() == "C":
-                    option_income += op_percent * op_price
-                if op_type.upper() == "P":
-                    option_income -= op_percent * op_price
+                try:
+                    op_price = self.get_option_price(
+                                        options_dates_i,
+                                        op_strike_percent * self.stock_price,
+                                        op_type)
+                    if op_type.upper() == "C":
+                        option_income += op_percent * op_price
+                    if op_type.upper() == "P":
+                        option_income -= op_percent * op_price
 
-                self.data_entry["Option Income"] = option_income
-                self.data_entry["Option Income Perc"] = option_income / self.stock_price
+                    self.data_entry["Option Income"] = option_income
+                    self.data_entry["Option Income Perc"] = option_income / self.stock_price
 
-                apr_value = (1 + self.data_entry["Option Income Perc"]) ** apr_constant - 1
-                self.data_entry["Option APR"] = apr_value
+                    apr_value = (1 + self.data_entry["Option Income Perc"]) ** apr_constant - 1
+                    self.data_entry["Option APR"] = apr_value
 
-                self.data_by_date.append(self.data_entry)
+                    self.data_by_date.append(self.data_entry)
+                except:
+                    pass
 
-        self.df = pd.DataFrame(self.data_by_date)
-        print(self.df)
+                self.df = pd.DataFrame(self.data_by_date)
+                self.df.to_csv("data.csv")
+                print(self.df)
 
 if __name__ == '__main__':
-    if 0:
-        fire.Fire(Stock)
-    else:
-        stock = Stock("CMCSA")
-        stock.calc()
+    fire.Fire(Stock)
