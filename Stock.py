@@ -44,7 +44,7 @@ class Stock():
         s = f"Stock {self.stock_ticker} is at {self.stock_price}"
         return s
 
-    def get_strike_price(self, price=0):
+    def get_strike_price(self, option_date, price=0):
         """
         Gets the strike price close to the percent assigned
         :param price:
@@ -52,17 +52,23 @@ class Stock():
         """
         if price < 0.01:
             price = self.stock_price
-        price = math.ceil(price)
         print(f"getting strike price close to {price:5.3f} ...")
-        val_list = self.strike_price_list
-        if price >= 1.0:
+        strike_price_list = yo.get_chain_greeks_date(
+            stock_ticker=self.stock_ticker,
+            dividend_yield=0,
+            option_type='c',
+            expiration_date=option_date,
+            risk_free_rate=None
+        )
+        val_list = list(strike_price_list['Strike'].values)
+        if price >= self.stock_price:
             strike_price = min([i for i in val_list if i > price])
         else:
             strike_price = max([i for i in val_list if i < price])
         return strike_price
 
     def get_option_price(self, option_date, option_price, option_type='c'):
-        price = self.get_strike_price()
+        price = self.get_strike_price(option_date, option_price)
         skey = f"{option_type}, {price:6.3f}, {option_date}"
         print(f"getting option price {skey}")
         if skey not in self.options_dict.keys():
