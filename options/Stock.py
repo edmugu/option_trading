@@ -8,7 +8,7 @@ import math
 pd.options.display.max_colwidth = 200  # set a value as your need
 
 class Stock():
-    def __init__(self, stock="AFRM", days=31):
+    def __init__(self, stock="CMCSA", days=31):
         self.stock_ticker = stock
         self.days = days
         self.datetime_now = datetime.now()
